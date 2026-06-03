@@ -28,3 +28,4 @@ jobs:
     with:
       artifact-name: my-app
       artifact-path: test.ps1
+    secrets: inherit
