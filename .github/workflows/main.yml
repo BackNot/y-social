@@ -5,27 +5,47 @@ on:
     branches: [main]
 
 jobs:
-  build:
+  sign:
     runs-on: windows-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Create test artifact
+      - name: Download Azure Signing Client
         run: |
-          "Write-Host 'Hello from signed script'" | Out-File "test.ps1"
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client" -OutFile "azuresigning.zip"
+          Expand-Archive azuresigning.zip -DestinationPath azuresigning
         shell: powershell
 
-      - name: Upload artifact
+      - name: Create metadata.json
+        run: |
+          $json = '{"Endpoint":"https://neu.codesigning.azure.net","CodeSigningAccountName":"${{ secrets.SIGNING_ACCOUNT_NAME }}","CertificateProfileName":"${{ secrets.CERTIFICATE_PROFILE_NAME }}","ExcludeCredentials":["VisualStudioCredential","VisualStudioCodeCredential","SharedTokenCacheCredential","InteractiveBrowserCredential"]}'
+          $bytes = [System.Text.Encoding]::ASCII.GetBytes($json)
+          [System.IO.File]::WriteAllBytes("metadata.json", $bytes)
+        shell: powershell
+
+      - name: Add signtool to PATH
+        run: |
+          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
+          echo $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+        shell: powershell
+
+      - name: Sign
+        env:
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+          AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+          AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+        run: |
+          signtool.exe sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "azuresigning\bin\x64\Azure.CodeSigning.Dlib.dll" /dmdf "metadata.json" "test.ps1"
+        shell: powershell
+
+      - name: Verify
+        run: |
+          Get-AuthenticodeSignature "test.ps1"
+        shell: powershell
+
+      - name: Upload signed artifact
         uses: actions/upload-artifact@v4
         with:
-          name: my-app
+          name: signed-test
           path: test.ps1
-
-  sign:
-    needs: build
-    uses: BackNot/signing-workflows/.github/workflows/sign-internal.yml@main
-    with:
-      artifact-name: my-app
-      artifact-path: test.ps1
-    secrets: inherit
