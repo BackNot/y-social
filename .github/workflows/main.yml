@@ -29,3 +29,9 @@ jobs:
             --timestamp-rfc3161 "http://timestamp.digicert.com" `
             --verbose `
             test.ps1
+
+      - name: Upload signed file
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-binary
+          path: test.ps1
