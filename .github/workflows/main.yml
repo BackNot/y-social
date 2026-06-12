@@ -1,4 +1,4 @@
-name: Build and Sign
+name: Sign PE Binary
 
 on:
   push:
@@ -7,45 +7,25 @@ on:
 jobs:
   sign:
     runs-on: windows-latest
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Download Azure Signing Client
-        run: |
-          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Trusted.Signing.Client" -OutFile "azuresigning.zip"
-          Expand-Archive azuresigning.zip -DestinationPath azuresigning
-        shell: powershell
+      - name: Install AzureSignTool
+        run: dotnet tool install --global AzureSignTool
 
-      - name: Create metadata.json
-        run: |
-          $json = '{"Endpoint":"https://neu.codesigning.azure.net","CodeSigningAccountName":"${{ secrets.SIGNING_ACCOUNT_NAME }}","CertificateProfileName":"${{ secrets.CERTIFICATE_PROFILE_NAME }}","ExcludeCredentials":["VisualStudioCredential","VisualStudioCodeCredential","SharedTokenCacheCredential","InteractiveBrowserCredential"]}'
-          $bytes = [System.Text.Encoding]::ASCII.GetBytes($json)
-          [System.IO.File]::WriteAllBytes("metadata.json", $bytes)
-        shell: powershell
-
-      - name: Add signtool to PATH
-        run: |
-          $signtool = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter signtool.exe | Where-Object { $_.FullName -like "*x64*" } | Select-Object -First 1
-          echo $signtool.DirectoryName | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-        shell: powershell
-
-      - name: Sign
+      - name: Sign binary
         env:
-          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
           AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
           AZURE_CLIENT_SECRET: ${{ secrets.AZURE_CLIENT_SECRET }}
+          AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
         run: |
-          signtool.exe sign /v /fd SHA256 /tr http://timestamp.acs.microsoft.com /td SHA256 /dlib "azuresigning\bin\x64\Azure.CodeSigning.Dlib.dll" /dmdf "metadata.json" "test.ps1"
-        shell: powershell
-
-      - name: Verify
-        run: |
-          Get-AuthenticodeSignature "test.ps1"
-        shell: powershell
-
-      - name: Upload signed artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: signed-test
-          path: test.ps1
+          AzureSignTool sign `
+            --azure-key-vault-url "${{ secrets.AZURE_VAULT_URI }}" `
+            --azure-key-vault-client-id "$env:AZURE_CLIENT_ID" `
+            --azure-key-vault-client-secret "$env:AZURE_CLIENT_SECRET" `
+            --azure-key-vault-tenant-id "$env:AZURE_TENANT_ID" `
+            --azure-key-vault-certificate "code-signing-cert" `
+            --timestamp-rfc3161 "http://timestamp.digicert.com" `
+            --verbose `
+            tedst.ps1
