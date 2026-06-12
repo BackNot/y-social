@@ -28,4 +28,4 @@ jobs:
             --azure-key-vault-certificate "code-signing-cert" `
             --timestamp-rfc3161 "http://timestamp.digicert.com" `
             --verbose `
-            tedst.ps1
+            test.ps1
